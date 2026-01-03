@@ -20,31 +20,48 @@ A powerful Python application for capturing Windows application screenshots and 
 
 ## Installation
 
-### 1. Install PyTorch with CUDA Support
+⚠️ **IMPORTANT**: For maximum GPU performance, do NOT use `pip install -r requirements.txt` directly!
+
+### Quick Install (GPU-Optimized)
+
+**1. Install PyTorch with CUDA support FIRST:**
 
 ```bash
-# For CUDA 11.8
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-
-# For CUDA 12.1
+# For CUDA 12.1 (recommended - RTX 30xx/40xx)
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# For CUDA 11.8 (older GPUs)
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 ```
 
-### 2. Install Package Dependencies
+**2. Install remaining dependencies:**
 
 ```bash
-pip install -r requirements.txt
+pip install transformers accelerate qwen-vl-utils pillow mss pywin32
 ```
 
-### 3. (Optional) Install Flash Attention 2
-
-For optimal performance on NVIDIA GPUs:
+**3. Install Flash Attention 2 for 2-4x speedup (optional):**
 
 ```bash
+pip install ninja
 pip install flash-attn --no-build-isolation
 ```
 
-Note: Flash Attention requires a proper CUDA build environment. If installation fails, the application will fall back to standard attention.
+### Detailed Installation
+
+See [INSTALL_GPU.md](INSTALL_GPU.md) for comprehensive GPU installation guide including:
+- Prerequisites and verification steps
+- Troubleshooting common issues
+- Performance benchmarks
+- Additional optimizations
+
+### Quick Verification
+
+```python
+import torch
+print(f"CUDA available: {torch.cuda.is_available()}")  # Should be True
+print(f"GPU: {torch.cuda.get_device_name(0)}")
+```
 
 ## Quick Start
 
