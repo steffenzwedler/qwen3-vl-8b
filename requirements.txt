@@ -1,0 +1,20 @@
+# Core dependencies
+torch>=2.0.0
+transformers>=4.37.0
+qwen-vl-utils>=0.0.2
+pillow>=10.0.0
+numpy>=1.24.0
+
+# Windows screen capture
+mss>=9.0.0
+pywin32>=306
+
+# Optional but recommended for faster inference
+flash-attn>=2.5.0  # Requires CUDA and proper build environment
+
+# Development dependencies
+pytest>=7.4.0
+pytest-cov>=4.1.0
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.0.0
