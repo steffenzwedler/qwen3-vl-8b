@@ -2,7 +2,10 @@
 Windows Screen Capture Module
 
 This module provides functionality to capture screenshots of Windows applications
-using the Windows API through pywin32 and mss for efficient screen capture.
+using multiple capture methods for maximum compatibility:
+- MSS: Standard GDI windows (browsers, Office, etc.)
+- DXCam: DirectX/OpenGL/Vulkan games and GPU-accelerated applications (10-20x faster)
+- Fallback chain ensures broad compatibility
 """
 
 import ctypes
@@ -19,6 +22,15 @@ import time
 
 logger = logging.getLogger(__name__)
 
+# Try to import DXCam for GPU-accelerated capture
+try:
+    import dxcam
+    DXCAM_AVAILABLE = True
+    logger.info("DXCam available - GPU-accelerated capture enabled for DirectX/OpenGL windows")
+except ImportError:
+    DXCAM_AVAILABLE = False
+    logger.warning("DXCam not available - DirectX/OpenGL capture will use slower MSS fallback")
+
 
 class WindowCapture:
     """
@@ -26,11 +38,33 @@ class WindowCapture:
 
     This class provides methods to enumerate windows, capture specific windows,
     and retrieve screenshots as PIL Images or numpy arrays.
+
+    Supports multiple capture backends:
+    - DXCam: GPU-native capture for DirectX/OpenGL/Vulkan (10-20x faster)
+    - MSS: Standard GDI capture for regular windows
     """
 
-    def __init__(self):
-        """Initialize the WindowCapture instance."""
+    def __init__(self, prefer_dxcam: bool = True, dxcam_target_fps: int = 60):
+        """
+        Initialize the WindowCapture instance.
+
+        Args:
+            prefer_dxcam: Prefer DXCam over MSS when available (faster for GPU-rendered windows)
+            dxcam_target_fps: Target FPS for DXCam capture (higher = lower latency)
+        """
         self.mss_instance = mss.mss()
+        self.prefer_dxcam = prefer_dxcam and DXCAM_AVAILABLE
+        self.dxcam_camera = None
+
+        # Initialize DXCam if available and preferred
+        if self.prefer_dxcam:
+            try:
+                self.dxcam_camera = dxcam.create(output_idx=0, output_color="RGB")
+                if self.dxcam_camera:
+                    logger.info("DXCam initialized successfully for GPU-accelerated capture")
+            except Exception as e:
+                logger.warning(f"Failed to initialize DXCam: {e}")
+                self.prefer_dxcam = False
 
     @staticmethod
     def list_windows() -> List[Tuple[int, str]]:
@@ -109,13 +143,49 @@ class WindowCapture:
             logger.exception(f"Unexpected error getting window rect: {e}")
             return None
 
-    def capture_window(self, hwnd: int, bring_to_front: bool = False) -> Optional[Image.Image]:
+    @staticmethod
+    def _is_likely_gpu_rendered(hwnd: int) -> bool:
+        """
+        Heuristic to detect if window likely uses DirectX/OpenGL/Vulkan.
+
+        Args:
+            hwnd: Window handle
+
+        Returns:
+            bool: True if window likely GPU-rendered
+        """
+        try:
+            class_name = win32gui.GetClassName(hwnd)
+
+            # Known GPU-rendered window classes
+            gpu_classes = [
+                'UnityWndClass',      # Unity games
+                'UnrealWindow',        # Unreal Engine
+                'SDL_app',             # SDL applications
+                'GLFW',                # GLFW applications
+                'CryENGINE',          # CryEngine
+                'Qt5',                 # Qt applications (often GPU-accelerated)
+                'Chrome_WidgetWin',   # Chrome (uses GPU acceleration)
+            ]
+
+            for gpu_class in gpu_classes:
+                if gpu_class in class_name:
+                    return True
+
+            # Additional heuristics could be added here
+            return False
+
+        except Exception:
+            return False
+
+    def capture_window(self, hwnd: int, bring_to_front: bool = False, method: str = 'auto') -> Optional[Image.Image]:
         """
         Capture a screenshot of a specific window.
 
         Args:
             hwnd: Window handle to capture
             bring_to_front: If True, bring window to foreground before capture
+            method: Capture method - 'auto', 'dxcam', 'mss'
 
         Returns:
             Optional[Image.Image]: PIL Image of the window or None if failed
@@ -132,16 +202,38 @@ class WindowCapture:
             logger.error(f"Invalid window dimensions: {width}x{height}")
             return None
 
-        try:
-            # Optionally bring window to foreground
-            if bring_to_front:
-                try:
-                    win32gui.SetForegroundWindow(hwnd)
-                    time.sleep(0.1)  # Brief delay for window to render
-                except Exception as e:
-                    logger.warning(f"Could not bring window to foreground: {e}")
+        # Optionally bring window to foreground
+        if bring_to_front:
+            try:
+                win32gui.SetForegroundWindow(hwnd)
+                time.sleep(0.05)  # Reduced delay
+            except Exception as e:
+                logger.warning(f"Could not bring window to foreground: {e}")
 
-            # Use mss for efficient screen capture
+        # Determine capture method
+        use_dxcam = False
+        if method == 'auto':
+            use_dxcam = self.prefer_dxcam and self._is_likely_gpu_rendered(hwnd)
+        elif method == 'dxcam':
+            use_dxcam = self.prefer_dxcam
+
+        # Try DXCam first if requested and available
+        if use_dxcam and self.dxcam_camera:
+            try:
+                region = (left, top, right, bottom)
+                frame = self.dxcam_camera.grab(region=region)
+
+                if frame is not None:
+                    img = Image.fromarray(frame)
+                    logger.debug(f"Captured using DXCam (GPU-accelerated)")
+                    return img
+                else:
+                    logger.debug("DXCam returned None, falling back to MSS")
+            except Exception as e:
+                logger.debug(f"DXCam capture failed: {e}, falling back to MSS")
+
+        # Fallback to MSS
+        try:
             monitor = {
                 "left": left,
                 "top": top,
@@ -151,6 +243,7 @@ class WindowCapture:
 
             screenshot = self.mss_instance.grab(monitor)
             img = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
+            logger.debug(f"Captured using MSS")
 
             return img
 
@@ -204,6 +297,7 @@ class WindowCapture:
 
     def close(self):
         """Explicitly close resources."""
+        # Close MSS
         if hasattr(self, 'mss_instance') and self.mss_instance:
             try:
                 self.mss_instance.close()
@@ -211,6 +305,14 @@ class WindowCapture:
                 logger.error(f"Error closing mss instance: {e}")
             finally:
                 self.mss_instance = None
+
+        # Close DXCam
+        if hasattr(self, 'dxcam_camera') and self.dxcam_camera:
+            try:
+                self.dxcam_camera.stop()
+                self.dxcam_camera = None
+            except Exception as e:
+                logger.error(f"Error closing dxcam camera: {e}")
 
     def __del__(self):
         """Clean up MSS instance."""

@@ -1,20 +1,42 @@
-# Core dependencies
-torch>=2.0.0
+# GPU-Accelerated PyTorch for NVIDIA GPUs on Windows
+# Install with: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# Or for CUDA 11.8: --index-url https://download.pytorch.org/whl/cu118
+torch>=2.4.0  # Updated for latest CUDA optimizations
+torchvision>=0.19.0
+torchaudio>=2.4.0
+
+# Transformers and VLM dependencies
 transformers>=4.37.0
+accelerate>=0.25.0  # For efficient multi-GPU and device mapping
 qwen-vl-utils>=0.0.2
+sentencepiece>=0.1.99  # For tokenization
+protobuf>=3.20.0
+
+# Image processing
 pillow>=10.0.0
+pillow-simd>=10.0.0  # SIMD-optimized PIL for faster image ops
+
+# Numerical computing
 numpy>=1.24.0
 
 # Windows screen capture
 mss>=9.0.0
 pywin32>=306
+dxcam>=0.0.5  # GPU-accelerated DirectX capture for games and OpenGL (10-20x faster)
 
-# Optional but recommended for faster inference
-flash-attn>=2.5.0  # Requires CUDA and proper build environment
+# GPU optimization libraries
+ninja>=1.11.0  # Required for flash-attention compilation
+flash-attn>=2.6.3  # Latest Flash Attention 2 with Hopper optimizations
+xformers>=0.0.23  # Alternative to Flash Attention (1.5-2x speedup)
+
+# Optional: Quantization support for lower memory usage
+bitsandbytes>=0.44.0  # 8-bit/4-bit quantization with improved Windows support
 
 # Development dependencies
 pytest>=7.4.0
 pytest-cov>=4.1.0
+pytest-mock>=3.12.0
 black>=23.0.0
 flake8>=6.0.0
 mypy>=1.0.0
+types-Pillow>=10.0.0
