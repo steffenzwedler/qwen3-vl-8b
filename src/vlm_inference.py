@@ -45,8 +45,8 @@ class VLMInference:
             device: Device to use ('cuda', 'cpu', or None for auto-detection)
             torch_dtype: Data type for model weights (bfloat16 recommended for GPUs)
             use_flash_attention: Whether to use Flash Attention 2 for faster inference
-            load_in_8bit: Load model in 8-bit quantization (2x faster, 50% less VRAM)
-            load_in_4bit: Load model in 4-bit quantization (4x faster, 75% less VRAM)
+            load_in_8bit: Load model in 8-bit quantization (50% less VRAM, may be slightly slower)
+            load_in_4bit: Load model in 4-bit quantization (75% less VRAM, may be 20-40% slower)
             use_compile: Use torch.compile() for 30-50% speedup (PyTorch 2.0+)
         """
         self.model_name = model_name
@@ -86,13 +86,13 @@ class VLMInference:
             "device_map": "auto" if self.device == "cuda" else None,
         }
 
-        # Quantization support for faster inference and less VRAM
+        # Quantization support for reduced VRAM (may reduce speed)
         if load_in_8bit:
             model_kwargs["load_in_8bit"] = True
-            logger.info("Loading model in 8-bit (2x faster, 50% less VRAM)")
+            logger.info("Loading model in 8-bit (50% less VRAM, may be slightly slower)")
         elif load_in_4bit:
             model_kwargs["load_in_4bit"] = True
-            logger.info("Loading model in 4-bit (4x faster, 75% less VRAM)")
+            logger.info("Loading model in 4-bit (75% less VRAM, may be 20-40% slower)")
 
         # Flash Attention 2 or fallback to SDPA
         if use_flash_attention and self.device == "cuda":

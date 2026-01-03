@@ -46,9 +46,10 @@ Implemented **Option A (Quick Wins) + Option B (Major Optimizations)** with addi
    - Includes `clear_kv_cache()` method
 
 7. **INT8/INT4 Quantization Support** - vlm_inference.py:36-37, 89-95
-   - `load_in_8bit=True` option: 2x faster, 50% less VRAM
-   - `load_in_4bit=True` option: 4x faster, 75% less VRAM
-   - **Impact**: 2-4x speedup with quantization
+   - `load_in_8bit=True` option: 50% less VRAM (may be slightly slower)
+   - `load_in_4bit=True` option: 75% less VRAM (may be 20-40% slower)
+   - **Impact**: Enables running on smaller GPUs, not primarily for speed
+   - **Note**: Quantization reduces memory, not necessarily inference time
 
 8. **Batch Processing** - vlm_inference.py:451-480
    - `generate_batch()` method for multiple images
