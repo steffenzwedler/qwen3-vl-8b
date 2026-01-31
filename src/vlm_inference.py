@@ -6,10 +6,13 @@ on NVIDIA GPUs. It handles model loading, image preprocessing, and text generati
 """
 
 import torch
-from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
+from transformers import Qwen3VLForConditionalGeneration, AutoProcessor, BitsAndBytesConfig
+
+
 from qwen_vl_utils import process_vision_info
-from typing import Optional, Union, List
-from PIL import Image
+from typing import Optional, Union, List, Tuple, Dict, Any
+from PIL import Image, ImageDraw
+from src.coord_utils import parse_bounding_boxes, normalize_coordinates
 import numpy as np
 from pathlib import Path
 import logging
@@ -35,7 +38,8 @@ class VLMInference:
         use_flash_attention: bool = True,
         load_in_8bit: bool = False,
         load_in_4bit: bool = False,
-        use_compile: bool = True,
+        use_compile: bool = False,
+        max_pixels: int = 1280 * 800,  # ~1300 tokens, within the sane 1000-1500 range
     ):
         """
         Initialize the VLM inference engine.
@@ -48,9 +52,18 @@ class VLMInference:
             load_in_8bit: Load model in 8-bit quantization (50% less VRAM, may be slightly slower)
             load_in_4bit: Load model in 4-bit quantization (75% less VRAM, may be 20-40% slower)
             use_compile: Use torch.compile() for 30-50% speedup (PyTorch 2.0+)
+            max_pixels: Maximum number of pixels for input image (capping prevents hangs)
         """
         self.model_name = model_name
         self.torch_dtype = torch_dtype
+        self.max_pixels = max_pixels
+
+        # Disable compile if quantized - it often hangs or causes issues on Windows with Bnb
+        if load_in_4bit or load_in_8bit:
+            if use_compile:
+                logger.warning("Disabling torch.compile() as it is often incompatible with quantized BitsAndBytes models on Windows.")
+            use_compile = False
+
         self.use_compile = use_compile
 
         # Auto-detect device
@@ -63,7 +76,13 @@ class VLMInference:
             current_device = torch.cuda.current_device()
             logger.info(f"Using GPU {current_device}: {torch.cuda.get_device_name(current_device)}")
             logger.info(f"CUDA Version: {torch.version.cuda}")
-            logger.info(f"Available GPU Memory: {torch.cuda.get_device_properties(current_device).total_memory / 1e9:.2f} GB")
+            total_vram_gb = torch.cuda.get_device_properties(current_device).total_memory / 1e9
+            logger.info(f"Available GPU Memory: {total_vram_gb:.2f} GB")
+
+            # Smart Quantization: Force 4-bit/8-bit if VRAM < 16GB (e.g. RTX 3080/4070/5070)
+            if total_vram_gb < 16 and not (load_in_8bit or load_in_4bit):
+                logger.warning(f"Low VRAM detected ({total_vram_gb:.2f} GB). Forcing 4-bit quantization to prevent system swap/OOM.")
+                load_in_4bit = True  # 4-bit is safer for 12GB cards than 8-bit
 
             # Enable TF32 for Ampere+ GPUs (RTX 30xx/40xx) - 10-20% speedup
             if torch.cuda.get_device_capability(0)[0] >= 8:  # Ampere or newer
@@ -86,14 +105,19 @@ class VLMInference:
             "device_map": "auto" if self.device == "cuda" else None,
         }
 
-        # Quantization support for reduced VRAM (may reduce speed)
-        if load_in_8bit:
-            model_kwargs["load_in_8bit"] = True
-            logger.info("Loading model in 8-bit (50% less VRAM, may be slightly slower)")
-        elif load_in_4bit:
-            model_kwargs["load_in_4bit"] = True
-            logger.info("Loading model in 4-bit (75% less VRAM, may be 20-40% slower)")
-
+        # Quantization support for reduced VRAM using BitsAndBytesConfig
+        if load_in_4bit:
+            model_kwargs["quantization_config"] = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch_dtype,
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_quant_type="nf4"
+            )
+            logger.info("Loading model in 4-bit (NF4) with BitsAndBytesConfig")
+        elif load_in_8bit:
+            model_kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
+            logger.info("Loading model in 8-bit with BitsAndBytesConfig")
+        
         # Flash Attention 2 or fallback to SDPA
         if use_flash_attention and self.device == "cuda":
             try:
@@ -107,13 +131,15 @@ class VLMInference:
                 except Exception:
                     logger.warning("SDPA not available, using default attention")
 
-        self.model = Qwen2VLForConditionalGeneration.from_pretrained(
+        self.model = Qwen3VLForConditionalGeneration.from_pretrained(
             model_name,
+            trust_remote_code=True,
+            local_files_only=True,
             **model_kwargs
         )
 
         # Load processor
-        self.processor = AutoProcessor.from_pretrained(model_name)
+        self.processor = AutoProcessor.from_pretrained(model_name, local_files_only=True)
 
         # Set model to evaluation mode
         self.model.eval()
@@ -123,9 +149,11 @@ class VLMInference:
             try:
                 torch_version = tuple(int(x) for x in torch.__version__.split('.')[:2])
                 if torch_version >= (2, 0):
-                    logger.info("Compiling model with torch.compile() - first run will be slower...")
-                    self.model = torch.compile(self.model, mode="reduce-overhead")
-                    logger.info("Model compiled successfully (30-50% speedup)")
+                    # Smart Compile Mode: max-autotune is better for stable hardware (RTX 30/40/50)
+                    compile_mode = "max-autotune"
+                    logger.info(f"Compiling model with torch.compile(mode='{compile_mode}') - first run will be slower...")
+                    self.model = torch.compile(self.model, mode=compile_mode)
+                    logger.info("Model compiled successfully (speedup expected)")
                 else:
                     logger.warning(f"torch.compile() requires PyTorch 2.0+, you have {torch.__version__}")
             except Exception as e:
@@ -228,6 +256,7 @@ class VLMInference:
                 {
                     "type": "image",
                     "image": image,
+                    "max_pixels": self.max_pixels,
                 },
                 {
                     "type": "text",
@@ -239,9 +268,10 @@ class VLMInference:
         return messages
 
     @torch.inference_mode()
+
     def generate(
         self,
-        image: Union[Image.Image, np.ndarray, str, Path],
+        image: Optional[Union[Image.Image, np.ndarray, str, Path]],
         prompt: str,
         system_prompt: Optional[str] = None,
         max_new_tokens: int = 512,
@@ -283,30 +313,47 @@ class VLMInference:
         if not (0.0 < top_p <= 1.0):
             raise ValueError(f"top_p must be between 0.0 and 1.0, got {top_p}")
 
-        # Prepare messages
-        messages = self.prepare_messages(image, prompt, system_prompt)
-
-        # Apply chat template
-        text = self.processor.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True
-        )
-
-        # Process vision information
-        image_inputs, video_inputs = process_vision_info(messages)
-
         # Prepare inputs
-        inputs = self.processor(
-            text=[text],
-            images=image_inputs,
-            videos=video_inputs,
-            padding=True,
-            return_tensors="pt",
-        )
+        if image is None and use_kv_cache and self.past_key_values is not None:
+             # Follow-up query without new image: Text Only
+             text_messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
+             text = self.processor.apply_chat_template(text_messages, tokenize=False, add_generation_prompt=True)
+             inputs = self.processor(text=[text], padding=True, return_tensors="pt")
+        else:
+            # Standard Flow
+            if image is None:
+                raise ValueError("Image is required for first turn or if cache is empty.")
+                
+            # Optional: Resize image if too large (Resolution Cap for Performance)
+            if self.max_pixels and isinstance(image, (Image.Image, np.ndarray, str, Path)):
+                # Note: prepare_messages will handle the actual image loading
+                # But we can set the max_pixels in the message content for Qwen-VL-utils
+                pass
+
+            messages = self.prepare_messages(image, prompt, system_prompt)
+            
+            # Use max_pixels for Qwen-VL processor to prevent huge input sequences
+            text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            image_inputs, video_inputs = process_vision_info(messages)
+            
+            # Inject max_pixels into the processor call for Qwen2-VL
+            inputs = self.processor(
+                text=[text],
+                images=image_inputs,
+                videos=video_inputs,
+                padding=True,
+                return_tensors="pt",
+                max_pixels=self.max_pixels,
+                # Pass capping params if they are supported by the processor
+                # For Qwen2-VL-Instruct, these are often handled by process_vision_info
+                # but let's be explicit if the processor supports them.
+            )
 
         # Move inputs to device with non-blocking transfer (15-25% faster)
         inputs = inputs.to(self.device, non_blocking=True)
+        
+
+
 
         # Prepare generation kwargs
         gen_kwargs = {
@@ -322,13 +369,17 @@ class VLMInference:
             logger.debug("Reusing KV cache from previous inference")
 
         # Generate with error handling
+        import time
+        start_time = time.time()
         try:
+            logger.info(f"Starting model.generate (inputs: {inputs.input_ids.shape})...")
             outputs = self.model.generate(
                 **inputs,
                 **gen_kwargs,
                 return_dict_in_generate=True,
                 output_hidden_states=False,
             )
+            logger.info(f"Generation complete in {time.time() - start_time:.2f}s")
 
             generated_ids = outputs.sequences
 
@@ -447,6 +498,75 @@ class VLMInference:
         if self.device == "cuda":
             torch.cuda.empty_cache()
             logger.info("GPU cache cleared")
+
+    def detect_element(
+        self,
+        image: Union[Image.Image, np.ndarray, str, Path],
+        element_description: str
+    ) -> Dict[str, Any]:
+        """
+        Detect a specific UI element and return its coordinates.
+        Uses specialized prompting and coordinate parsing logic.
+        
+        Args:
+           image: Screenshot
+           element_description: Text description of element (e.g. "Save button")
+           
+        Returns:
+           Dict with 'box_normalized', 'box_pixels', 'center_pixels'
+        """
+        # Standard grounding prompt for Qwen2-VL/Qwen3-VL
+        # We use a firm system prompt to force coordinate output
+        system_prompt = "Output the bounding box for the following element in [ymin, xmin, ymax, xmax] format. ONLY the coordinates."
+        prompt = f"Detect: {element_description}"
+        
+        output_text = self.generate(
+            image, 
+            prompt, 
+            system_prompt=system_prompt,
+            temperature=0.1,  # Slightly higher to encourage specific token selection
+            use_kv_cache=False,
+            max_new_tokens=128
+        )
+        
+        # Parse output
+        boxes = parse_bounding_boxes(output_text)
+        
+        if not boxes:
+            return {"found": False, "raw_output": output_text}
+            
+        # Get image dimensions
+        if isinstance(image, (str, Path)):
+            img_obj = Image.open(image)
+            w, h = img_obj.size
+        elif isinstance(image, np.ndarray):
+            h, w = image.shape[:2]
+        else: # PIL
+            w, h = image.size
+            img_to_draw = image.copy()
+            
+        # Normalize first box
+        box_norm = boxes[0]
+        box_px = normalize_coordinates(box_norm, w, h, format='x1_y1_x2_y2')
+            
+        # Draw box for debugging
+        if 'img_to_draw' in locals():
+            draw = ImageDraw.Draw(img_to_draw)
+            draw.rectangle(box_px, outline="red", width=3)
+            img_to_draw.save("debug_result.png")
+            logger.info(f"Saved debug image with box to debug_result.png")
+        
+        cx = (box_px[0] + box_px[2]) // 2
+        cy = (box_px[1] + box_px[3]) // 2
+        
+        return {
+            "found": True,
+            "element": element_description,
+            "box_normalized": box_norm,
+            "box_pixels": box_px,
+            "center_pixels": (cx, cy),
+            "raw_output": output_text
+        }
 
     def generate_batch(
         self,

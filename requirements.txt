@@ -14,7 +14,7 @@ protobuf>=3.20.0
 
 # Image processing
 pillow>=10.0.0
-pillow-simd>=10.0.0  # SIMD-optimized PIL for faster image ops
+
 
 # Numerical computing
 numpy>=1.24.0
@@ -23,10 +23,11 @@ numpy>=1.24.0
 mss>=9.0.0
 pywin32>=306
 dxcam>=0.0.5  # GPU-accelerated DirectX capture for games and OpenGL (10-20x faster)
+pyautogui>=0.9.54  # Cross-platform GUI automation for input control
 
 # GPU optimization libraries
 ninja>=1.11.0  # Required for flash-attention compilation
-flash-attn>=2.6.3  # Latest Flash Attention 2 with Hopper optimizations
+
 xformers>=0.0.23  # Alternative to Flash Attention (1.5-2x speedup)
 
 # Optional: Quantization support for lower memory usage
@@ -40,3 +41,12 @@ black>=23.0.0
 flake8>=6.0.0
 mypy>=1.0.0
 types-Pillow>=10.0.0
+
+# MCP (Model Context Protocol) Server
+mcp>=0.1.0
+fastapi>=0.110.0
+uvicorn>=0.27.0
+python-multipart>=0.0.9
+sse-starlette>=2.0.0  # Required for SSE transport if needed
+pytest-asyncio>=0.23.0
+httpx>=0.27.0  # For testing API endpoints

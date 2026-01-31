@@ -5,10 +5,11 @@ A powerful Python application for capturing Windows application screenshots and 
 ## Features
 
 - **Efficient Windows Screen Capture**: Capture any visible window using native Windows API and MSS
-- **GPU-Optimized VLM Inference**: Leverage NVIDIA GPUs with Flash Attention 2 for fast inference
+- **GPU-Optimized VLM Inference**: Leverage NVIDIA GPUs with specific cu126 + BitsAndBytes 8-bit/4-bit quantization for Windows stability
+- **Generalized UI Grounding**: High-precision UI element detection with automatic coordinate transformation (x1_y1_x2_y2 format)
 - **Interactive Command Interface**: Ask questions, identify UI elements, and describe screenshots
 - **Flexible API**: Use as a library or interactive CLI tool
-- **Memory Efficient**: Optimized for Windows with proper GPU memory management
+- **Memory Efficient**: Optimized for 4K desktops with sane 800p resolution scaling (~1300 tokens)
 
 ## Requirements
 
@@ -40,11 +41,11 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 pip install transformers accelerate qwen-vl-utils pillow mss pywin32
 ```
 
-**3. Install Flash Attention 2 for 2-4x speedup (optional):**
+**3. Install quantization & optimization tools:**
 
 ```bash
-pip install ninja
-pip install flash-attn --no-build-isolation
+pip install bitsandbytes --index-url https://jllllll.github.io/bitsandbytes-windows-webui
+pip install accelerate
 ```
 
 ### Detailed Installation
