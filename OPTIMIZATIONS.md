@@ -61,21 +61,21 @@ Implemented **Option A (Quick Wins) + Option B (Major Optimizations)** with addi
    - **Impact**: 1.5-2x when Flash Attention unavailable
    - Ensures good performance even without Flash Attention
 
-10. **DirectX/OpenGL Capture** - window_capture.py:25-32, 47-67, 146-252
-    - **DXCam integration** for GPU-rendered windows
-    - Auto-detection of DirectX/OpenGL/Vulkan windows
-    - **Impact**: 10-20x faster capture for games and GPU apps
-    - Automatic fallback to MSS for standard windows
-    - Supports: Unity, Unreal, SDL, GLFW, CryEngine, Qt5, Chrome
+     - Supports: Unity, Unreal, SDL, GLFW, CryEngine, Qt5, Chrome
+
+11. **Generalized UI Grounding (NEW!)** - vlm_inference.py:512-560
+    - Optimized resolution to **1280x800** (~1300 tokens)
+    - High-precision **x1_y1_x2_y2** coordinate mapping for Windows 4K desktops
+    - Firm "Detect:" grounding prompts with system instruction overrides
+    - **Impact**: Robust element detection across different screen resolutions and scaling factors
 
 ### ✅ Additional Improvements
 
 11. **Updated Dependencies** - requirements.txt
     - PyTorch 2.1.0 → 2.4.0 (latest CUDA optimizations)
     - Flash Attention 2.5.0 → 2.6.3 (Hopper optimizations)
-    - bitsandbytes 0.41.0 → 0.44.0 (better Windows support)
+    - Added: `bitsandbytes` Windows-specific wheels for stability
     - Added: `dxcam>=0.0.5` for DirectX capture
-    - Added: `xformers>=0.0.23` as Flash Attention alternative
 
 12. **Better Error Handling** - vlm_inference.py:339-356
     - Automatic KV cache clearing on OOM
@@ -238,8 +238,8 @@ capture = WindowCapture()
 1. **KV Cache**: Currently stores entire cache, may use significant VRAM for long conversations
 2. **Batch Processing**: Sequential processing (true batching requires model architecture changes)
 3. **DirectX Capture**: Requires Windows 10+ and DirectX-capable GPU
-4. **Quantization**: INT4/INT8 may reduce quality slightly (usually negligible)
-5. **torch.compile()**: First run is slow (compilation), subsequent runs are fast
+4. **Quantization**: INT4/INT8 may reduce quality slightly (usually negligible). **Requires custom Windows wheels to prevent hangs.**
+5. **torch.compile()**: First run is slow (compilation), subsequent runs are fast. **Disabled by default for quantized models on Windows for stability.**
 
 ---
 

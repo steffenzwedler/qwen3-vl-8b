@@ -21,10 +21,10 @@
    - Must convert to FP16/FP32 for computation
    - Conversion adds latency
 
-2. **Lack of Optimized Kernels**
-   - bitsandbytes doesn't use highly optimized INT8 paths
-   - Not leveraging Tensor Cores efficiently
-   - Some operations fall back to slower implementations
+2. **Windows Compatibility Layer Hacks**
+   - Standard `bitsandbytes` often hangs on Windows in 4-bit/8-bit modes
+   - Custom DLLs are often required to fix the "inference hang" issue
+   - **Crucial Fix**: Use supervised Windows wheels (e.g., from jllllll) to ensure stability.
 
 3. **Model Not Memory-Bound**
    - Qwen3-VL-8B (~16GB) fits on RTX 3090/4090
@@ -185,7 +185,7 @@ Do you have OOM errors?
 - ❌ May reduce inference speed by 10-40%
 - ❌ Slight quality degradation
 
-**Use quantization for VRAM, not for speed.**
+**Use quantization for VRAM, not for speed. On Windows, use specialized wheels to prevent hangs.**
 
 For maximum speed with sufficient VRAM, use:
 ```python

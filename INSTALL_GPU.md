@@ -5,10 +5,10 @@ This guide ensures you get the **fastest possible performance** with NVIDIA GPUs
 ## Prerequisites
 
 1. **NVIDIA GPU** with compute capability ≥ 7.0 (RTX 20xx series or newer recommended)
-2. **CUDA Toolkit 11.8 or 12.1** - [Download here](https://developer.nvidia.com/cuda-downloads)
-3. **Visual Studio 2019/2022** with C++ build tools - Required for Flash Attention
-4. **Python 3.8-3.11** (3.11 recommended for best performance)
-5. **16GB+ GPU VRAM** recommended for Qwen3-VL-8B
+2. **CUDA Toolkit 12.4 or 12.6** (Recommended for最新的 GPUs)
+3. **Visual Studio 2019/2022** with C++ build tools - Required for optimized kernels
+4. **Python 3.10+** (3.11/3.12 recommended)
+5. **12GB+ GPU VRAM** recommended for Qwen3-VL-8B (8GB minimum with INT4)
 
 ## Step-by-Step Installation
 
@@ -23,14 +23,14 @@ Both commands should work. Note your CUDA version (11.8 or 12.1).
 
 ### 2. Install PyTorch with CUDA Support (CRITICAL!)
 
-**For CUDA 12.1 (recommended):**
+**For CUDA 12.4 / 12.6 (Recommended):**
 ```bash
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 ```
 
-**For CUDA 11.8:**
+**For CUDA 12.1:**
 ```bash
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 ```
 
 **Verify GPU support:**
@@ -77,11 +77,13 @@ pip install flash-attn --no-build-isolation
 
 ### 6. Install Optional Optimizations
 
-**For 8-bit quantization (saves memory):**
+**For Quantization (CRITICAL for Windows stability):**
+
+To avoid inference hangs on Windows, use the specifically compiled BitsAndBytes wheels:
+
 ```bash
-pip install bitsandbytes
+pip install bitsandbytes --index-url https://jllllll.github.io/bitsandbytes-windows-webui
 ```
-Note: Windows support for bitsandbytes is experimental.
 
 ### 7. Install Development Dependencies (Optional)
 
